@@ -1,0 +1,10 @@
+
+version: '0.0.1'
+services:
+  bloc-server:
+    build:
+      context: .
+      target: final
+    ports:
+      - 8000:8000
+
