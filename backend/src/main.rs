@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::TcpStream;
 use rocket::request::{self, FromRequest, Request};
 use rocket::outcome::Outcome::*;
@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 mod services;
 
-use services::req::{self, RType, Response};
+use services::req::{self, RType};
 use std::net::SocketAddr;
 
 
@@ -34,10 +34,10 @@ impl<'r> FromRequest<'r> for ClientIp {
 }
 
 #[post("/", format = "json", data = "<port>")]
-async fn new_connection(client_ip: ClientIp, port: Json<Port>) {
+async fn new_connection(client_ip: ClientIp, port: Json<Port>) -> Result<Status, Status> {
 	println!("New node: {}:{}", client_ip.0, port.0.0);
 	
-	
+	// address to test tcp connection
 	let address: SocketAddr = format!("{}:{}", client_ip.0, port.0.0).parse().unwrap();
 
 	// test tcp connection to node
@@ -55,28 +55,27 @@ async fn new_connection(client_ip: ClientIp, port: Json<Port>) {
 
 			// send req
 			if stream.write_all(&buffer_size).is_err()  || stream.write_all(&bytes).is_err() {
-				// TODO: return bad status code
-				return;
+				return Err(Status::InternalServerError);
 			}	
 
 			// get response
 			match req::handle_response(stream) {
 				Ok(_) => {},
 				Err(e) => {
-					// TODO: return bad status code
 					eprintln!("{e}");
-					return;
+					return Err(Status::InternalServerError);
 				}
 			}
 		},
 		Err(e) => {
-			// TODO: return bad status code
 			eprintln!("{e}");
-			return;
+			return Err(Status::InternalServerError);
 		}
 	};
-	
+
 	// TODO: create entry in db. The IP with the successful connection to node is saved. Only those IPs can send other requests
+
+	Ok(Status::Ok)
 }
 
 #[get("/")]
