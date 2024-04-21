@@ -1,14 +1,25 @@
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use rocket::request::{self, FromRequest, Request};
 use rocket::outcome::Outcome::*;
 use rocket::http::Status;
-use std::fmt;
+use rocket::serde::json::Json;
+use serde::Deserialize;
 
 mod services;
+
+use services::req::{self, RType, Response};
+use std::net::SocketAddr;
+
 
 #[macro_use] extern crate rocket;
 
 
 struct ClientIp(std::net::IpAddr);
+
+
+#[derive(Deserialize)]
+struct Port(u16);
 
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for ClientIp {
@@ -22,26 +33,50 @@ impl<'r> FromRequest<'r> for ClientIp {
 	}
 }
 
-
-impl fmt::Display for ClientIp {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		write!(f, "{:?}", self.0)
-	}
-}
-
-#[post("/", format = "json")]
-fn new_connection(client_ip: ClientIp) -> String {
-	println!("{}", client_ip);
-
-	// TODO: get request to their ip address at correct port,
-	// if get is success
-		// TODO: give token
-		// TODO: establish a way of knowning whether post was called or not (give tokens?) (post is only called once)
+#[post("/", format = "json", data = "<port>")]
+async fn new_connection(client_ip: ClientIp, port: Json<Port>) {
+	println!("New node: {}:{}", client_ip.0, port.0.0);
 	
-	// step one: make it so that when i recieve connection, i ping address and port and wait for response, 
-	// if no response then not a node, and send response to post being: yeah dont work, check firewall
-		// if no response then not a node, and send response to post being: yeah dont work, check firewall
-	format!("YES!")
+	
+	let address: SocketAddr = format!("{}:{}", client_ip.0, port.0.0).parse().unwrap();
+
+	// test tcp connection to node
+	match TcpStream::connect_timeout(&address, std::time::Duration::from_secs(5)) {
+
+		Ok(mut stream) => {
+			// create req object
+			let req: req::Request = req::Request {
+				req_type: RType::ConnectTest
+			};
+
+			// serialize req
+			let bytes: Vec<u8> = bincode::serialize(&req).unwrap();
+			let buffer_size: [u8; 4] = (bytes.len() as u32).to_le_bytes();
+
+			// send req
+			if stream.write_all(&buffer_size).is_err()  || stream.write_all(&bytes).is_err() {
+				// TODO: return bad status code
+				return;
+			}	
+
+			// get response
+			match req::handle_response(stream) {
+				Ok(_) => {},
+				Err(e) => {
+					// TODO: return bad status code
+					eprintln!("{e}");
+					return;
+				}
+			}
+		},
+		Err(e) => {
+			// TODO: return bad status code
+			eprintln!("{e}");
+			return;
+		}
+	};
+	
+	// TODO: create entry in db. The IP with the successful connection to node is saved. Only those IPs can send other requests
 }
 
 #[get("/")]
